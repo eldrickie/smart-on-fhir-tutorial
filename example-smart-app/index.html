@@ -73,29 +73,40 @@
       <script src='./lib/js/cerner-smart-embeddable-lib-1.0.0.min.js'></script>
     -->
 
-    <!-- Application-level javascript-->
-    <script src='./src/js/example-smart-app.js'></script>
-
-    <!-- FHIR Client JS Library -->
+    <!-- FHIR Client JS Library - MUST load before application JS -->
     <script src='./lib/js/fhir-client-v0.1.12.js'></script>
 
     <!-- Prevent session bleed caused by single threaded embedded browser and sessionStorage API -->
     <!-- https://github.com/cerner/fhir-client-cerner-additions -->
     <script src='./lib/js/fhir-client-cerner-additions-1.0.0.js'></script>
-    <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.12.4/jquery.min.js"></script>
-    <script>
-      extractData().then(
-        //Display Patient Demographics and Observations if extractData was success
-        function(p) {
-          drawVisualization(p);
-        },
 
-        //Display 'Failed to call FHIR Service' if extractData failed
-        function() {
-          $('#loading').hide();
-          $('#errors').html('<p> Failed to call FHIR Service </p>');
-        }
-      );
+    <!-- jQuery -->
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.12.4/jquery.min.js"></script>
+
+    <!-- Application-level javascript - loads after FHIR client -->
+    <script src='./src/js/example-smart-app.js'></script>
+
+    <script>
+      // Wrap in FHIR.oauth2.ready() to complete OAuth flow and get authenticated client
+      FHIR.oauth2.ready().then(function(client) {
+        // Now extractData() can use the authenticated FHIR client
+        extractData().then(
+          //Display Patient Demographics and Observations if extractData was success
+          function(p) {
+            drawVisualization(p);
+          },
+
+          //Display 'Failed to call FHIR Service' if extractData failed
+          function(error) {
+            $('#loading').hide();
+            $('#errors').html('<p> Failed to call FHIR Service: ' + (error.message || error) + '</p>');
+          }
+        );
+      }).catch(function(error) {
+        // Handle OAuth errors
+        $('#loading').hide();
+        $('#errors').html('<p> OAuth authorization failed: ' + (error.message || error) + '</p>');
+      });
     </script>
   </body>
 </html>
