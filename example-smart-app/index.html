@@ -42,7 +42,6 @@
 
     <script>
       function setText(id, v){ document.getElementById(id).textContent = v ?? '—'; }
-      function loinc(code){ return {system:"http://loinc.org", code }; }
 
       // v0.1.12: use callback style
       FHIR.oauth2.ready(
@@ -50,7 +49,8 @@
           console.log('SMART ready ✅');
           console.log('ISS:', smart && smart.state && smart.state.serverUrl);
           console.log('Has token:', !!(smart && smart.state && smart.state.tokenResponse && smart.state.tokenResponse.access_token));
-          console.log('Patient:', smart && smart.patient && smart.patient.id());
+          // FIXED: Removed () from smart.patient.id - it's a property, not a function!
+          console.log('Patient:', smart && smart.patient && smart.patient.id);
 
           const pid = smart.patient && smart.patient.id;
           if (!pid) {
