@@ -5,18 +5,14 @@
     <meta charset="utf-8" />
     <title>Example-SMART-App</title>
     <link rel="stylesheet" href="./src/css/example-smart-app.css" />
-    <style>
-      pre.debug { background:#111; color:#0f0; padding:8px; overflow:auto; }
-    </style>
+    <style> pre.debug{background:#111;color:#0f0;padding:8px;overflow:auto} </style>
   </head>
 
   <body>
     <div id="errors"></div>
 
     <div id="loading" class="spinner">
-      <div class="bounce1"></div>
-      <div class="bounce2"></div>
-      <div class="bounce3"></div>
+      <div class="bounce1"></div><div class="bounce2"></div><div class="bounce3"></div>
     </div>
 
     <div id="holder" style="display:none">
@@ -40,113 +36,96 @@
       </table>
     </div>
 
-    <!-- FHIR Client (must be first) -->
+    <!-- FHIR client (must be first) -->
     <script src="./lib/js/fhir-client-v0.1.12.js"></script>
-    <!-- Cerner session additions (prevents session bleed) -->
     <script src="./lib/js/fhir-client-cerner-additions-1.0.0.js"></script>
-    <!-- jQuery for convenience -->
-    <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.12.4/jquery.min.js"></script>
-
-    <!-- IMPORTANT: do NOT load example-smart-app.js for now (we bypass it) -->
-    <!-- <script src="./src/js/example-smart-app.js"></script> -->
 
     <script>
-      // Helper: safely set a field
-      function setField(id, val) {
-        document.getElementById(id).textContent = (val ?? "") === "" ? "—" : val;
-      }
+      function setText(id, v){ document.getElementById(id).textContent = v ?? '—'; }
+      function loinc(code){ return {system:"http://loinc.org", code }; }
 
-      // Helper: from a CodeableConcept array find a code match (by code string)
-      function findObsByCode(bundle, code) {
-        if (!bundle || !Array.isArray(bundle.entry)) return null;
-        for (const e of bundle.entry) {
-          const r = e.resource;
-          if (!r || r.resourceType !== "Observation" || !r.code || !r.code.coding) continue;
-          if (r.code.coding.some(c => c && (c.code === code))) return r;
-        }
-        return null;
-      }
-
-      // Render observations into page
-      function renderObservations(obsBundle) {
-        // Common LOINC codes
-        const HEIGHT = "8302-2";
-        const SYS = "8480-6";
-        const DIA = "8462-4";
-        const LDL = "13457-7";
-        const HDL = "2085-9";
-
-        function valueText(obs) {
-          if (!obs) return "—";
-          const vq = obs.valueQuantity;
-          const vs = obs.valueString || obs.valueCodeableConcept?.text;
-          if (vq && (vq.value != null)) return `${vq.value} ${vq.unit || ""}`.trim();
-          if (vs) return vs;
-          // Sometimes components hold values (e.g., BP panels)
-          if (Array.isArray(obs.component)) {
-            const compVal = obs.component.map(c => {
-              const v = c.valueQuantity;
-              if (v && (v.value != null)) return `${v.value} ${v.unit || ""}`.trim();
-              return null;
-            }).filter(Boolean)[0];
-            if (compVal) return compVal;
-          }
-          return "—";
-        }
-
-        setField("height",      valueText(findObsByCode(obsBundle, HEIGHT)));
-        setField("systolicbp",  valueText(findObsByCode(obsBundle, SYS)));
-        setField("diastolicbp", valueText(findObsByCode(obsBundle, DIA)));
-        setField("ldl",         valueText(findObsByCode(obsBundle, LDL)));
-        setField("hdl",         valueText(findObsByCode(obsBundle, HDL)));
-      }
-
-      // SMART init (v0.1.12 uses callbacks)
+      // v0.1.12: use callback style
       FHIR.oauth2.ready(
-        function (client) {
-          // Debug to console
-          console.log("SMART ready ✅");
-          console.log("ISS:", client?.state?.serverUrl);
-          console.log("Has token:", !!client?.state?.tokenResponse?.access_token);
-          console.log("Patient:", client?.patient?.id);
+        function (smart) {
+          console.log('SMART ready ✅');
+          console.log('ISS:', smart && smart.state && smart.state.serverUrl);
+          console.log('Has token:', !!(smart && smart.state && smart.state.tokenResponse && smart.state.tokenResponse.access_token));
+          console.log('Patient:', smart && smart.patient && smart.patient.id());
 
-          // Show loading spinner until we have data
-          const patientId = client?.patient?.id;
-          if (!patientId) {
-            $('#loading').hide();
-            $('#errors').html('<p>No patient context provided.</p>');
+          const pid = smart.patient && smart.patient.id();
+          if (!pid) {
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('errors').innerHTML = '<p>No patient context provided.</p>';
             return;
           }
 
-          // Fetch Patient then Observations
-          Promise.all([
-            client.request(`Patient/${patientId}`),
-            client.request(`Observation?patient=${encodeURIComponent(patientId)}&_count=200`)
-          ])
-          .then(([patient, obsBundle]) => {
-            // Populate patient
-            const name = (patient.name && patient.name[0]) || {};
-            const given = Array.isArray(name.given) ? name.given[0] : (name.given || "");
-            const family = name.family || "";
-            setField("fname", given);
-            setField("lname", family);
-            setField("gender", patient.gender || "—");
-            setField("birthdate", patient.birthDate || "—");
+          // ---- Patient ----
+          const p$ = smart.patient.read();  // v0.1.12 API
 
-            // Populate observations
-            renderObservations(obsBundle);
+          // ---- Observations (search by patient & selected LOINCs) ----
+          const codes = [
+            '8302-2',  // Height
+            '8480-6',  // Systolic BP
+            '8462-4',  // Diastolic BP
+            '13457-7', // LDL
+            '2085-9'   // HDL
+          ].join(',');
 
-            // Swap UI
-            $('#loading').hide();
-            document.getElementById('holder').style.display = '';
-          })
-          .catch(err => {
-            console.error("FHIR request failed:", err);
-            $('#loading').hide();
-            $('#errors').html(
-              '<p> Failed to call FHIR Service: ' + (err?.message || JSON.stringify(err)) + '</p>'
-            );
-            // Optional: dump error for quick inspection
+          const o$ = smart.api.search({
+            type: 'Observation',
+            query: { patient: pid, code: codes, _count: 200 }
+          });
+
+          // Render when both are ready
+          smart.jquery.when(p$, o$).done(function(patient, obsBundle) {
+            try {
+              // patient is wrapped in jQuery deferred result array
+              const p = patient.data || patient; 
+              const name = (p.name && p.name[0]) || {};
+              const given = Array.isArray(name.given) ? name.given[0] : (name.given || '');
+              const family = name.family || '';
+              setText('fname', given);
+              setText('lname', family);
+              setText('gender', p.gender || '—');
+              setText('birthdate', p.birthDate || '—');
+
+              const bundle = obsBundle.data || obsBundle;
+              function byCode(c) {
+                const entries = (bundle.entry || []).map(e => e.resource).filter(Boolean);
+                return entries.find(r => r.code && r.code.coding && r.code.coding.some(x => x.code === c));
+              }
+              function val(obs) {
+                if (!obs) return '—';
+                const q = obs.valueQuantity;
+                if (q && q.value != null) return (q.value + ' ' + (q.unit || '')).trim();
+                const s = obs.valueString || obs.valueCodeableConcept?.text;
+                if (s) return s;
+                if (Array.isArray(obs.component)) {
+                  for (const c of obs.component) {
+                    const v = c.valueQuantity;
+                    if (v && v.value != null) return (v.value + ' ' + (v.unit || '')).trim();
+                  }
+                }
+                return '—';
+              }
+
+              setText('height',      val(byCode('8302-2')));
+              setText('systolicbp',  val(byCode('8480-6')));
+              setText('diastolicbp', val(byCode('8462-4')));
+              setText('ldl',         val(byCode('13457-7')));
+              setText('hdl',         val(byCode('2085-9')));
+
+              document.getElementById('loading').style.display = 'none';
+              document.getElementById('holder').style.display = '';
+            } catch (err) {
+              console.error(err);
+              document.getElementById('loading').style.display = 'none';
+              document.getElementById('errors').innerHTML = '<p>Render error: ' + (err.message || JSON.stringify(err)) + '</p>';
+            }
+          }).fail(function(err) {
+            console.error('FHIR request failed:', err);
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('errors').innerHTML = '<p>Failed to call FHIR Service: ' + (err?.responseText || err?.message || JSON.stringify(err)) + '</p>';
             const pre = document.createElement('pre');
             pre.className = 'debug';
             pre.textContent = 'Error detail:\n' + (err?.responseText || JSON.stringify(err, null, 2));
@@ -154,11 +133,9 @@
           });
         },
         function (error) {
-          console.error("SMART init error:", error);
-          $('#loading').hide();
-          $('#errors').html(
-            '<p> OAuth authorization failed: ' + (error?.message || JSON.stringify(error)) + '</p>'
-          );
+          console.error('SMART init error:', error);
+          document.getElementById('loading').style.display = 'none';
+          document.getElementById('errors').innerHTML = '<p>OAuth authorization failed: ' + (error?.message || JSON.stringify(error)) + '</p>';
         }
       );
     </script>
