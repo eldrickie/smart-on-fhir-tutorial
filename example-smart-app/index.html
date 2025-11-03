@@ -52,7 +52,7 @@
           console.log('Has token:', !!(smart && smart.state && smart.state.tokenResponse && smart.state.tokenResponse.access_token));
           console.log('Patient:', smart && smart.patient && smart.patient.id());
 
-          const pid = smart.patient && smart.patient.id();
+          const pid = smart.patient && smart.patient.id;
           if (!pid) {
             document.getElementById('loading').style.display = 'none';
             document.getElementById('errors').innerHTML = '<p>No patient context provided.</p>';
