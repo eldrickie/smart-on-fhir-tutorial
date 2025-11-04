@@ -67,191 +67,188 @@
       }
 
       console.log('=== Starting SMART App ===');
-      console.log('URL:', window.location.href);
-      console.log('URL params:', window.location.search);
-      console.log('URL hash:', window.location.hash);
-
-      // Check sessionStorage for debug
-      try {
-        console.log('SessionStorage keys:', Object.keys(sessionStorage));
-        for (var i = 0; i < sessionStorage.length; i++) {
-          var key = sessionStorage.key(i);
-          if (key.indexOf('fhir') !== -1 || key.indexOf('smart') !== -1) {
-            console.log('SessionStorage[' + key + ']:', sessionStorage.getItem(key));
-          }
-        }
-      } catch(e) {
-        console.error('Cannot access sessionStorage:', e);
-      }
 
       // FHIR.oauth2.ready callback
       FHIR.oauth2.ready(
         function (smart) {
           console.log('=== SMART ready ✅ ===');
-          console.log('Smart object:', smart);
           
-          // Deep dive into the smart object structure
-          if (smart.state) {
-            console.log('Smart.state:', smart.state);
-            console.log('Smart.state.serverUrl:', smart.state.serverUrl);
-            console.log('Smart.state.tokenResponse:', smart.state.tokenResponse);
-            console.log('Smart.state.provider:', smart.state.provider);
-          } else {
-            console.warn('⚠️ smart.state is missing!');
-          }
-          
-          if (smart.server) {
-            console.log('Smart.server:', smart.server);
-            console.log('Smart.server.serviceUrl:', smart.server.serviceUrl);
-          }
-          
-          if (smart.tokenResponse) {
-            console.log('Smart.tokenResponse:', smart.tokenResponse);
-          }
-
-          // Try to get ISS from multiple possible locations
+          // Get ISS from multiple possible locations
           var iss = (smart.state && smart.state.serverUrl) || 
                     (smart.server && smart.server.serviceUrl) ||
                     (smart.state && smart.state.provider && smart.state.provider.url);
           
-          console.log('ISS (FHIR Server URL):', iss);
+          console.log('ISS:', iss);
 
-          // Try to get token from multiple possible locations
-          var token = (smart.state && smart.state.tokenResponse && smart.state.tokenResponse.access_token) ||
-                     (smart.tokenResponse && smart.tokenResponse.access_token);
-          
+          // Get token from multiple possible locations
+          var token = null;
+          if (smart.state && smart.state.tokenResponse && smart.state.tokenResponse.access_token) {
+            token = smart.state.tokenResponse.access_token;
+          } else if (smart.tokenResponse && smart.tokenResponse.access_token) {
+            token = smart.tokenResponse.access_token;
+          } else if (smart.server && smart.server.auth && smart.server.auth.token) {
+            token = smart.server.auth.token;
+          }
+
           console.log('Has token:', !!token);
-          console.log('Token (first 20 chars):', token ? token.substring(0, 20) + '...' : 'NONE');
 
-          // Get patient ID
-          var pid = smart.patient && smart.patient.id;
+          // Get patient ID - try multiple ways
+          var pid = null;
+          if (smart.patient) {
+            // Try as property first
+            pid = smart.patient.id;
+            // If that's undefined, try as method
+            if (!pid && typeof smart.patient.id === 'function') {
+              try {
+                pid = smart.patient.id();
+              } catch(e) {
+                console.warn('smart.patient.id() call failed:', e);
+              }
+            }
+          }
+          
+          // Also check tokenResponse for patient context
+          if (!pid && smart.tokenResponse && smart.tokenResponse.patient) {
+            pid = smart.tokenResponse.patient;
+          }
+          
+          // Check state for patient
+          if (!pid && smart.state && smart.state.tokenResponse && smart.state.tokenResponse.patient) {
+            pid = smart.state.tokenResponse.patient;
+          }
+
           console.log('Patient ID:', pid);
+          console.log('Patient ID type:', typeof pid);
 
-          // Validation checks
+          // Validation
           if (!iss) {
-            showError(
-              'OAuth Error: FHIR Server URL (ISS) is missing!',
-              'The OAuth flow completed but the FHIR server URL was not saved. ' +
-              'This usually means there is a problem with sessionStorage or the OAuth state. ' +
-              'Check the browser console for sessionStorage contents.'
-            );
+            showError('OAuth Error: FHIR Server URL (ISS) is missing!');
             return;
           }
 
           if (!token) {
-            showError(
-              'OAuth Error: Access token is missing!',
-              'The OAuth flow completed but no access token was received. ' +
-              'ISS: ' + iss + '\n' +
-              'Patient: ' + pid + '\n\n' +
-              'Check that your app has the correct scopes and that the authorization completed successfully.'
-            );
+            showError('OAuth Error: Access token is missing!');
             return;
           }
 
           if (!pid) {
-            showError(
-              'No Patient Context',
-              'No patient ID was provided in the launch context. ' +
-              'Make sure you are launching the app with a patient selected.'
-            );
+            showError('No patient ID found in the launch context.');
             return;
           }
 
-          console.log('✅ All OAuth checks passed. Fetching data...');
-          console.log('Fetching from server:', iss);
-          console.log('For patient:', pid);
+          // Convert patient ID to string and validate
+          pid = String(pid);
+          console.log('Patient ID (as string):', pid);
 
-          // Fetch patient data
-          var p$ = smart.patient.read();
+          if (pid === 'undefined' || pid === 'null' || pid === '') {
+            showError('Invalid patient ID: ' + pid);
+            return;
+          }
 
-          // Fetch observations
-          var codes = '8302-2,8480-6,8462-4,13457-7,2085-9';
-          var o$ = smart.api.search({
-            type: 'Observation',
-            query: { 
-              patient: pid, 
-              code: codes, 
-              _count: 100 
-            }
-          });
+          console.log('✅ All checks passed. Fetching data...');
 
-          $.when(p$, o$).done(function(patient, obsBundle) {
-            try {
-              console.log('✅ Data fetched successfully!');
-              console.log('Patient response:', patient);
-              console.log('Observations response:', obsBundle);
+          // Build URLs
+          var patientUrl = iss + '/Patient/' + pid;
+          var obsUrl = iss + '/Observation?patient=' + pid + 
+                      '&code=8302-2,8480-6,8462-4,13457-7,2085-9&_count=100';
+
+          console.log('Patient URL:', patientUrl);
+          console.log('Observations URL:', obsUrl);
+
+          // Manual FHIR API calls with explicit authorization header
+          var headers = {
+            'Authorization': 'Bearer ' + token,
+            'Accept': 'application/json+fhir'
+          };
+
+          // Fetch patient
+          $.ajax({
+            url: patientUrl,
+            type: 'GET',
+            headers: headers,
+            success: function(patient) {
+              console.log('✅ Patient data received');
               
-              var p = patient.data || patient;
-              var name = (p.name && p.name[0]) || {};
+              var name = (patient.name && patient.name[0]) || {};
               var given = Array.isArray(name.given) ? name.given.join(' ') : (name.given || '');
               var family = name.family || '';
               
               setText('fname', given);
               setText('lname', family);
-              setText('gender', p.gender);
-              setText('birthdate', p.birthDate);
+              setText('gender', patient.gender);
+              setText('birthdate', patient.birthDate);
 
-              var bundle = obsBundle.data || obsBundle;
-              
-              function byCode(c) {
-                var entries = (bundle.entry || []).map(function(e) { return e.resource; }).filter(Boolean);
-                return entries.find(function(r) {
-                  return r.code && r.code.coding && r.code.coding.some(function(x) { return x.code === c; });
-                });
-              }
-              
-              function val(obs) {
-                if (!obs) return '—';
-                var q = obs.valueQuantity;
-                if (q && q.value != null) return (q.value + ' ' + (q.unit || '')).trim();
-                var s = obs.valueString || (obs.valueCodeableConcept && obs.valueCodeableConcept.text);
-                if (s) return s;
-                if (Array.isArray(obs.component)) {
-                  for (var i = 0; i < obs.component.length; i++) {
-                    var comp = obs.component[i];
-                    var v = comp.valueQuantity;
-                    if (v && v.value != null) return (v.value + ' ' + (v.unit || '')).trim();
+              // Fetch observations
+              $.ajax({
+                url: obsUrl,
+                type: 'GET',
+                headers: headers,
+                success: function(bundle) {
+                  console.log('✅ Observations received');
+                  console.log('Number of observations:', bundle.entry ? bundle.entry.length : 0);
+                  
+                  function byCode(c) {
+                    var entries = (bundle.entry || []).map(function(e) { return e.resource; }).filter(Boolean);
+                    return entries.find(function(r) {
+                      return r.code && r.code.coding && r.code.coding.some(function(x) { return x.code === c; });
+                    });
                   }
+                  
+                  function val(obs) {
+                    if (!obs) return '—';
+                    var q = obs.valueQuantity;
+                    if (q && q.value != null) return (q.value + ' ' + (q.unit || '')).trim();
+                    var s = obs.valueString || (obs.valueCodeableConcept && obs.valueCodeableConcept.text);
+                    if (s) return s;
+                    if (Array.isArray(obs.component)) {
+                      for (var i = 0; i < obs.component.length; i++) {
+                        var comp = obs.component[i];
+                        var v = comp.valueQuantity;
+                        if (v && v.value != null) return (v.value + ' ' + (v.unit || '')).trim();
+                      }
+                    }
+                    return '—';
+                  }
+
+                  setText('height', val(byCode('8302-2')));
+                  setText('systolicbp', val(byCode('8480-6')));
+                  setText('diastolicbp', val(byCode('8462-4')));
+                  setText('ldl', val(byCode('13457-7')));
+                  setText('hdl', val(byCode('2085-9')));
+
+                  document.getElementById('loading').style.display = 'none';
+                  document.getElementById('holder').style.display = '';
+                  console.log('✅ Display complete!');
+                },
+                error: function(xhr, status, error) {
+                  console.error('Observations fetch failed');
+                  console.error('Status:', xhr.status);
+                  console.error('Response:', xhr.responseText);
+                  showError(
+                    'Failed to fetch observations (Status: ' + xhr.status + ')',
+                    xhr.responseText || error
+                  );
                 }
-                return '—';
-              }
-
-              setText('height', val(byCode('8302-2')));
-              setText('systolicbp', val(byCode('8480-6')));
-              setText('diastolicbp', val(byCode('8462-4')));
-              setText('ldl', val(byCode('13457-7')));
-              setText('hdl', val(byCode('2085-9')));
-
-              document.getElementById('loading').style.display = 'none';
-              document.getElementById('holder').style.display = '';
-              console.log('✅ Display complete!');
-              
-            } catch (err) {
-              showError('Render Error', err.message + '\n\n' + err.stack);
+              });
+            },
+            error: function(xhr, status, error) {
+              console.error('Patient fetch failed');
+              console.error('Status:', xhr.status);
+              console.error('Status text:', xhr.statusText);
+              console.error('Response:', xhr.responseText);
+              console.error('URL was:', patientUrl);
+              showError(
+                'Failed to fetch patient data (Status: ' + xhr.status + ')',
+                'URL: ' + patientUrl + '\n\n' +
+                'Response: ' + (xhr.responseText || error)
+              );
             }
-          }).fail(function(err) {
-            console.error('❌ FHIR request failed:', err);
-            var errorMsg = 'Failed to fetch data from FHIR server';
-            var errorDetail = 'Server: ' + iss + '\n' +
-                             'Patient: ' + pid + '\n\n';
-            
-            if (err.responseText) {
-              errorDetail += 'Response: ' + err.responseText;
-            } else if (err.message) {
-              errorDetail += 'Error: ' + err.message;
-            } else {
-              errorDetail += 'Error object: ' + JSON.stringify(err, null, 2);
-            }
-            
-            showError(errorMsg, errorDetail);
           });
         },
         function (error) {
           console.error('❌ SMART OAuth ready failed:', error);
           showError(
             'OAuth Authorization Failed',
-            'The OAuth flow did not complete successfully.\n\n' +
             'Error: ' + (error && error.message || JSON.stringify(error))
           );
         }
