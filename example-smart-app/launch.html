@@ -18,7 +18,9 @@
 
   <script>
     console.log('=== SMART Launch Page ===');
+    console.log('Full URL:', window.location.href);
     
+    // Parse query parameters
     function getParams() {
       var params = {};
       var search = window.location.search.substring(1);
@@ -35,15 +37,20 @@
 
     var qp = getParams();
     console.log('Launch parameters:', qp);
+    console.log('  iss:', qp.iss);
+    console.log('  launch:', qp.launch);
 
     if (!qp.iss || !qp.launch) {
+      console.error('❌ ERROR: Missing launch parameters');
       document.body.innerHTML = '<div style="color:red;padding:20px;">ERROR: Missing launch parameters. This app must be launched from an EHR.</div>';
     } else {
-      // Try with system-level scopes for Provider app
+      console.log('✅ Launch parameters present, starting OAuth...');
+      
+      // Patient app configuration - matches your "Edris test" application
       FHIR.oauth2.authorize({
-        client_id: '8c4c24d4-0447-494c-8492-9599a95c9cb0',
+        client_id: '82059b8c-a275-4563-9315-4c447f486965',
         redirect_uri: 'https://eldrickie.github.io/smart-on-fhir-tutorial/example-smart-app/',
-        scope: 'launch launch/patient openid profile fhirUser system/Patient.read system/Observation.read',
+        scope: 'launch openid profile fhirUser patient/Patient.read patient/Observation.read',
         iss: qp.iss,
         launch: qp.launch
       });
