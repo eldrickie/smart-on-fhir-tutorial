@@ -5,7 +5,10 @@
     <meta charset="utf-8" />
     <title>Example-SMART-App</title>
     <link rel="stylesheet" href="./src/css/example-smart-app.css" />
-    <style> pre.debug{background:#111;color:#0f0;padding:8px;overflow:auto} </style>
+    <style> 
+      pre.debug{background:#111;color:#0f0;padding:8px;overflow:auto;font-size:11px;max-height:400px;}
+      .error{color:red;padding:10px;background:#ffe0e0;border:1px solid red;margin:10px;}
+    </style>
   </head>
 
   <body>
@@ -36,11 +39,11 @@
       </table>
     </div>
 
-    <!-- FHIR client (must be first) -->
+    <!-- FHIR client libs -->
     <script src="./lib/js/fhir-client-v0.1.12.js"></script>
     <script src="./lib/js/fhir-client-cerner-additions-1.0.0.js"></script>
     
-    <!-- jQuery - must load BEFORE the script that uses it -->
+    <!-- jQuery -->
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.12.4/jquery.min.js"></script>
 
     <script>
@@ -49,54 +52,139 @@
         if (el) el.textContent = v || '—';
       }
 
-      console.log('Starting OAuth ready callback...');
+      function showError(msg, detail) {
+        console.error(msg, detail);
+        document.getElementById('loading').style.display = 'none';
+        var errorHtml = '<div class="error"><strong>' + msg + '</strong></div>';
+        document.getElementById('errors').innerHTML = errorHtml;
+        
+        if (detail) {
+          var pre = document.createElement('pre');
+          pre.className = 'debug';
+          pre.textContent = typeof detail === 'string' ? detail : JSON.stringify(detail, null, 2);
+          document.getElementById('errors').appendChild(pre);
+        }
+      }
 
-      // v0.1.12: use callback style
+      console.log('=== Starting SMART App ===');
+      console.log('URL:', window.location.href);
+      console.log('URL params:', window.location.search);
+      console.log('URL hash:', window.location.hash);
+
+      // Check sessionStorage for debug
+      try {
+        console.log('SessionStorage keys:', Object.keys(sessionStorage));
+        for (var i = 0; i < sessionStorage.length; i++) {
+          var key = sessionStorage.key(i);
+          if (key.indexOf('fhir') !== -1 || key.indexOf('smart') !== -1) {
+            console.log('SessionStorage[' + key + ']:', sessionStorage.getItem(key));
+          }
+        }
+      } catch(e) {
+        console.error('Cannot access sessionStorage:', e);
+      }
+
+      // FHIR.oauth2.ready callback
       FHIR.oauth2.ready(
         function (smart) {
-          console.log('SMART ready ✅');
+          console.log('=== SMART ready ✅ ===');
           console.log('Smart object:', smart);
-          console.log('ISS:', smart && smart.state && smart.state.serverUrl);
-          console.log('Has token:', !!(smart && smart.state && smart.state.tokenResponse && smart.state.tokenResponse.access_token));
-          console.log('Patient:', smart && smart.patient && smart.patient.id);
+          
+          // Deep dive into the smart object structure
+          if (smart.state) {
+            console.log('Smart.state:', smart.state);
+            console.log('Smart.state.serverUrl:', smart.state.serverUrl);
+            console.log('Smart.state.tokenResponse:', smart.state.tokenResponse);
+            console.log('Smart.state.provider:', smart.state.provider);
+          } else {
+            console.warn('⚠️ smart.state is missing!');
+          }
+          
+          if (smart.server) {
+            console.log('Smart.server:', smart.server);
+            console.log('Smart.server.serviceUrl:', smart.server.serviceUrl);
+          }
+          
+          if (smart.tokenResponse) {
+            console.log('Smart.tokenResponse:', smart.tokenResponse);
+          }
 
-          const pid = smart.patient && smart.patient.id;
-          if (!pid) {
-            document.getElementById('loading').style.display = 'none';
-            document.getElementById('errors').innerHTML = '<p>No patient context provided.</p>';
+          // Try to get ISS from multiple possible locations
+          var iss = (smart.state && smart.state.serverUrl) || 
+                    (smart.server && smart.server.serviceUrl) ||
+                    (smart.state && smart.state.provider && smart.state.provider.url);
+          
+          console.log('ISS (FHIR Server URL):', iss);
+
+          // Try to get token from multiple possible locations
+          var token = (smart.state && smart.state.tokenResponse && smart.state.tokenResponse.access_token) ||
+                     (smart.tokenResponse && smart.tokenResponse.access_token);
+          
+          console.log('Has token:', !!token);
+          console.log('Token (first 20 chars):', token ? token.substring(0, 20) + '...' : 'NONE');
+
+          // Get patient ID
+          var pid = smart.patient && smart.patient.id;
+          console.log('Patient ID:', pid);
+
+          // Validation checks
+          if (!iss) {
+            showError(
+              'OAuth Error: FHIR Server URL (ISS) is missing!',
+              'The OAuth flow completed but the FHIR server URL was not saved. ' +
+              'This usually means there is a problem with sessionStorage or the OAuth state. ' +
+              'Check the browser console for sessionStorage contents.'
+            );
             return;
           }
 
-          console.log('Fetching data for patient:', pid);
+          if (!token) {
+            showError(
+              'OAuth Error: Access token is missing!',
+              'The OAuth flow completed but no access token was received. ' +
+              'ISS: ' + iss + '\n' +
+              'Patient: ' + pid + '\n\n' +
+              'Check that your app has the correct scopes and that the authorization completed successfully.'
+            );
+            return;
+          }
 
-          // ---- Patient ----
+          if (!pid) {
+            showError(
+              'No Patient Context',
+              'No patient ID was provided in the launch context. ' +
+              'Make sure you are launching the app with a patient selected.'
+            );
+            return;
+          }
+
+          console.log('✅ All OAuth checks passed. Fetching data...');
+          console.log('Fetching from server:', iss);
+          console.log('For patient:', pid);
+
+          // Fetch patient data
           var p$ = smart.patient.read();
 
-          // ---- Observations (search by patient & selected LOINCs) ----
-          var codes = [
-            '8302-2',  // Height
-            '8480-6',  // Systolic BP
-            '8462-4',  // Diastolic BP
-            '13457-7', // LDL
-            '2085-9'   // HDL
-          ].join(',');
-
+          // Fetch observations
+          var codes = '8302-2,8480-6,8462-4,13457-7,2085-9';
           var o$ = smart.api.search({
             type: 'Observation',
-            query: { patient: pid, code: codes, _count: 200 }
+            query: { 
+              patient: pid, 
+              code: codes, 
+              _count: 100 
+            }
           });
 
-          // FIXED: Use global jQuery $ instead of smart.jquery
           $.when(p$, o$).done(function(patient, obsBundle) {
             try {
-              console.log('Data received!');
-              console.log('Patient:', patient);
-              console.log('Observations:', obsBundle);
+              console.log('✅ Data fetched successfully!');
+              console.log('Patient response:', patient);
+              console.log('Observations response:', obsBundle);
               
-              // patient is wrapped in jQuery deferred result array
-              var p = patient.data || patient; 
+              var p = patient.data || patient;
               var name = (p.name && p.name[0]) || {};
-              var given = Array.isArray(name.given) ? name.given[0] : (name.given || '');
+              var given = Array.isArray(name.given) ? name.given.join(' ') : (name.given || '');
               var family = name.family || '';
               
               setText('fname', given);
@@ -121,42 +209,51 @@
                 if (s) return s;
                 if (Array.isArray(obs.component)) {
                   for (var i = 0; i < obs.component.length; i++) {
-                    var c = obs.component[i];
-                    var v = c.valueQuantity;
+                    var comp = obs.component[i];
+                    var v = comp.valueQuantity;
                     if (v && v.value != null) return (v.value + ' ' + (v.unit || '')).trim();
                   }
                 }
                 return '—';
               }
 
-              setText('height',      val(byCode('8302-2')));
-              setText('systolicbp',  val(byCode('8480-6')));
+              setText('height', val(byCode('8302-2')));
+              setText('systolicbp', val(byCode('8480-6')));
               setText('diastolicbp', val(byCode('8462-4')));
-              setText('ldl',         val(byCode('13457-7')));
-              setText('hdl',         val(byCode('2085-9')));
+              setText('ldl', val(byCode('13457-7')));
+              setText('hdl', val(byCode('2085-9')));
 
               document.getElementById('loading').style.display = 'none';
               document.getElementById('holder').style.display = '';
-              console.log('Display complete!');
+              console.log('✅ Display complete!');
+              
             } catch (err) {
-              console.error('Render error:', err);
-              document.getElementById('loading').style.display = 'none';
-              document.getElementById('errors').innerHTML = '<p>Render error: ' + (err.message || JSON.stringify(err)) + '</p>';
+              showError('Render Error', err.message + '\n\n' + err.stack);
             }
           }).fail(function(err) {
-            console.error('FHIR request failed:', err);
-            document.getElementById('loading').style.display = 'none';
-            document.getElementById('errors').innerHTML = '<p>Failed to call FHIR Service: ' + (err && err.responseText || err && err.message || JSON.stringify(err)) + '</p>';
-            var pre = document.createElement('pre');
-            pre.className = 'debug';
-            pre.textContent = 'Error detail:\n' + (err && err.responseText || JSON.stringify(err, null, 2));
-            document.body.appendChild(pre);
+            console.error('❌ FHIR request failed:', err);
+            var errorMsg = 'Failed to fetch data from FHIR server';
+            var errorDetail = 'Server: ' + iss + '\n' +
+                             'Patient: ' + pid + '\n\n';
+            
+            if (err.responseText) {
+              errorDetail += 'Response: ' + err.responseText;
+            } else if (err.message) {
+              errorDetail += 'Error: ' + err.message;
+            } else {
+              errorDetail += 'Error object: ' + JSON.stringify(err, null, 2);
+            }
+            
+            showError(errorMsg, errorDetail);
           });
         },
         function (error) {
-          console.error('SMART init error:', error);
-          document.getElementById('loading').style.display = 'none';
-          document.getElementById('errors').innerHTML = '<p>OAuth authorization failed: ' + (error && error.message || JSON.stringify(error)) + '</p>';
+          console.error('❌ SMART OAuth ready failed:', error);
+          showError(
+            'OAuth Authorization Failed',
+            'The OAuth flow did not complete successfully.\n\n' +
+            'Error: ' + (error && error.message || JSON.stringify(error))
+          );
         }
       );
     </script>
