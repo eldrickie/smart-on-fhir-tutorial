@@ -1,256 +1,99 @@
 <!DOCTYPE html>
 <html lang="en">
   <head>
-    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
-    <meta charset="utf-8" />
+    <meta http-equiv='X-UA-Compatible' content='IE=edge' />
+    <meta http-equiv='Content-Type' content='text/html; charset=utf-8' />
     <title>Example-SMART-App</title>
-    <link rel="stylesheet" href="./src/css/example-smart-app.css" />
-    <style> 
-      pre.debug{background:#111;color:#0f0;padding:8px;overflow:auto;font-size:11px;max-height:400px;}
-      .error{color:red;padding:10px;background:#ffe0e0;border:1px solid red;margin:10px;}
-    </style>
+
+    <link rel='stylesheet' type='text/css' href='./src/css/example-smart-app.css'>
+    <!--
+      Temporarily disable cerner-smart-embeddable-lib
+      <link rel='stylesheet' type='text/css' href='./lib/css/cerner-smart-embeddable-lib-1.0.0.min.css'>
+    -->
   </head>
-
   <body>
-    <div id="errors"></div>
-
-    <div id="loading" class="spinner">
-      <div class="bounce1"></div><div class="bounce2"></div><div class="bounce3"></div>
+    <div id='errors'>
     </div>
-
-    <div id="holder" style="display:none">
+    <div id="loading" class="spinner">
+      <div class="bounce1"></div>
+      <div class="bounce2"></div>
+      <div class="bounce3"></div>
+    </div>
+    <div id='holder' >
       <h2>Example-SMART-App</h2>
 
       <h2>Patient Resource</h2>
       <table>
-        <tr><th>First Name:</th><td id="fname"></td></tr>
-        <tr><th>Last Name:</th><td id="lname"></td></tr>
-        <tr><th>Gender:</th><td id="gender"></td></tr>
-        <tr><th>Date of Birth:</th><td id="birthdate"></td></tr>
+        <tr>
+          <th>First Name:</th>
+          <td id='fname'></td>
+        </tr>
+        <tr>
+          <th>Last Name:</th>
+          <td id='lname'></td>
+        </tr>
+        <tr>
+          <th>Gender:</th>
+          <td id='gender'></td>
+        </tr>
+        <tr>
+          <th>Date of Birth:</th>
+          <td id='birthdate'></td>
+        </tr>
       </table>
-
       <h2>Observation Resource</h2>
       <table>
-        <tr><th>Height:</th><td id="height"></td></tr>
-        <tr><th>Systolic Blood Pressure:</th><td id="systolicbp"></td></tr>
-        <tr><th>Diastolic Blood Pressure:</th><td id="diastolicbp"></td></tr>
-        <tr><th>LDL:</th><td id="ldl"></td></tr>
-        <tr><th>HDL:</th><td id="hdl"></td></tr>
+        <tr>
+          <th>Height:</th>
+          <td id='height'></td>
+        </tr>
+        <tr>
+          <th>Systolic Blood Pressure:</th>
+          <td id='systolicbp'></td>
+
+        </tr>
+        <tr>
+          <th>Diastolic Blood Pressure:</th>
+          <td id='diastolicbp'></td>
+        </tr>
+        <tr>
+          <th>LDL:</th>
+          <td id='ldl'></td>
+        </tr>
+        <tr>
+          <th>HDL:</th>
+          <td id='hdl'></td>
+        </tr>
       </table>
     </div>
+    <!-- Required JS files to enable this page to embed within an MPage -->
+    <!--
+      Temporarily disable cerner-smart-embeddable-lib
+      <script src='https://cdnjs.cloudflare.com/ajax/libs/babel-polyfill/6.26.0/polyfill.min.js'></script>
+      <script src='./lib/js/cerner-smart-embeddable-lib-1.0.0.min.js'></script>
+    -->
 
-    <!-- FHIR client libs -->
-    <script src="./lib/js/fhir-client-v0.1.12.js"></script>
-    <script src="./lib/js/fhir-client-cerner-additions-1.0.0.js"></script>
-    
-    <!-- jQuery -->
+    <!-- Application-level javascript-->
+    <script src='./src/js/example-smart-app.js'></script>
+
+    <!-- FHIR Client JS Library -->
+    <script src='./lib/js/fhir-client-v0.1.12.js'></script>
+
+    <!-- Prevent session bleed caused by single threaded embedded browser and sessionStorage API -->
+    <!-- https://github.com/cerner/fhir-client-cerner-additions -->
+    <script src='./lib/js/fhir-client-cerner-additions-1.0.0.js'></script>
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.12.4/jquery.min.js"></script>
-
     <script>
-      function setText(id, v){ 
-        var el = document.getElementById(id);
-        if (el) el.textContent = v || '—';
-      }
-
-      function showError(msg, detail) {
-        console.error(msg, detail);
-        document.getElementById('loading').style.display = 'none';
-        var errorHtml = '<div class="error"><strong>' + msg + '</strong></div>';
-        document.getElementById('errors').innerHTML = errorHtml;
-        
-        if (detail) {
-          var pre = document.createElement('pre');
-          pre.className = 'debug';
-          pre.textContent = typeof detail === 'string' ? detail : JSON.stringify(detail, null, 2);
-          document.getElementById('errors').appendChild(pre);
-        }
-      }
-
-      console.log('=== Starting SMART App ===');
-
-      // FHIR.oauth2.ready callback
-      FHIR.oauth2.ready(
-        function (smart) {
-          console.log('=== SMART ready ✅ ===');
-          
-          // Get ISS from multiple possible locations
-          var iss = (smart.state && smart.state.serverUrl) || 
-                    (smart.server && smart.server.serviceUrl) ||
-                    (smart.state && smart.state.provider && smart.state.provider.url);
-          
-          console.log('ISS:', iss);
-
-          // Get token from multiple possible locations
-          var token = null;
-          if (smart.state && smart.state.tokenResponse && smart.state.tokenResponse.access_token) {
-            token = smart.state.tokenResponse.access_token;
-          } else if (smart.tokenResponse && smart.tokenResponse.access_token) {
-            token = smart.tokenResponse.access_token;
-          } else if (smart.server && smart.server.auth && smart.server.auth.token) {
-            token = smart.server.auth.token;
-          }
-
-          console.log('Has token:', !!token);
-
-          // Get patient ID - try multiple ways
-          var pid = null;
-          if (smart.patient) {
-            // Try as property first
-            pid = smart.patient.id;
-            // If that's undefined, try as method
-            if (!pid && typeof smart.patient.id === 'function') {
-              try {
-                pid = smart.patient.id();
-              } catch(e) {
-                console.warn('smart.patient.id() call failed:', e);
-              }
-            }
-          }
-          
-          // Also check tokenResponse for patient context
-          if (!pid && smart.tokenResponse && smart.tokenResponse.patient) {
-            pid = smart.tokenResponse.patient;
-          }
-          
-          // Check state for patient
-          if (!pid && smart.state && smart.state.tokenResponse && smart.state.tokenResponse.patient) {
-            pid = smart.state.tokenResponse.patient;
-          }
-
-          console.log('Patient ID:', pid);
-          console.log('Patient ID type:', typeof pid);
-
-          // Validation
-          if (!iss) {
-            showError('OAuth Error: FHIR Server URL (ISS) is missing!');
-            return;
-          }
-
-          if (!token) {
-            showError('OAuth Error: Access token is missing!');
-            return;
-          }
-
-          if (!pid) {
-            showError('No patient ID found in the launch context.');
-            return;
-          }
-
-          // Convert patient ID to string and validate
-          pid = String(pid);
-          console.log('Patient ID (as string):', pid);
-
-          if (pid === 'undefined' || pid === 'null' || pid === '') {
-            showError('Invalid patient ID: ' + pid);
-            return;
-          }
-
-          console.log('✅ All checks passed. Fetching data...');
-
-          // Build URLs
-          var patientUrl = iss + '/Patient/' + pid;
-          var obsUrl = iss + '/Observation?patient=' + pid + 
-                      '&code=8302-2,8480-6,8462-4,13457-7,2085-9&_count=100';
-
-          console.log('Patient URL:', patientUrl);
-          console.log('Observations URL:', obsUrl);
-
-          // Manual FHIR API calls with explicit authorization header
-          var headers = {
-            'Authorization': 'Bearer ' + token,
-            'Accept': 'application/json+fhir'
-          };
-
-          // Fetch patient
-          $.ajax({
-            url: patientUrl,
-            type: 'GET',
-            headers: headers,
-            success: function(patient) {
-              console.log('✅ Patient data received');
-              
-              var name = (patient.name && patient.name[0]) || {};
-              var given = Array.isArray(name.given) ? name.given.join(' ') : (name.given || '');
-              var family = name.family || '';
-              
-              setText('fname', given);
-              setText('lname', family);
-              setText('gender', patient.gender);
-              setText('birthdate', patient.birthDate);
-
-              // Fetch observations
-              $.ajax({
-                url: obsUrl,
-                type: 'GET',
-                headers: headers,
-                success: function(bundle) {
-                  console.log('✅ Observations received');
-                  console.log('Number of observations:', bundle.entry ? bundle.entry.length : 0);
-                  
-                  function byCode(c) {
-                    var entries = (bundle.entry || []).map(function(e) { return e.resource; }).filter(Boolean);
-                    return entries.find(function(r) {
-                      return r.code && r.code.coding && r.code.coding.some(function(x) { return x.code === c; });
-                    });
-                  }
-                  
-                  function val(obs) {
-                    if (!obs) return '—';
-                    var q = obs.valueQuantity;
-                    if (q && q.value != null) return (q.value + ' ' + (q.unit || '')).trim();
-                    var s = obs.valueString || (obs.valueCodeableConcept && obs.valueCodeableConcept.text);
-                    if (s) return s;
-                    if (Array.isArray(obs.component)) {
-                      for (var i = 0; i < obs.component.length; i++) {
-                        var comp = obs.component[i];
-                        var v = comp.valueQuantity;
-                        if (v && v.value != null) return (v.value + ' ' + (v.unit || '')).trim();
-                      }
-                    }
-                    return '—';
-                  }
-
-                  setText('height', val(byCode('8302-2')));
-                  setText('systolicbp', val(byCode('8480-6')));
-                  setText('diastolicbp', val(byCode('8462-4')));
-                  setText('ldl', val(byCode('13457-7')));
-                  setText('hdl', val(byCode('2085-9')));
-
-                  document.getElementById('loading').style.display = 'none';
-                  document.getElementById('holder').style.display = '';
-                  console.log('✅ Display complete!');
-                },
-                error: function(xhr, status, error) {
-                  console.error('Observations fetch failed');
-                  console.error('Status:', xhr.status);
-                  console.error('Response:', xhr.responseText);
-                  showError(
-                    'Failed to fetch observations (Status: ' + xhr.status + ')',
-                    xhr.responseText || error
-                  );
-                }
-              });
-            },
-            error: function(xhr, status, error) {
-              console.error('Patient fetch failed');
-              console.error('Status:', xhr.status);
-              console.error('Status text:', xhr.statusText);
-              console.error('Response:', xhr.responseText);
-              console.error('URL was:', patientUrl);
-              showError(
-                'Failed to fetch patient data (Status: ' + xhr.status + ')',
-                'URL: ' + patientUrl + '\n\n' +
-                'Response: ' + (xhr.responseText || error)
-              );
-            }
-          });
+      extractData().then(
+        //Display Patient Demographics and Observations if extractData was success
+        function(p) {
+          drawVisualization(p);
         },
-        function (error) {
-          console.error('❌ SMART OAuth ready failed:', error);
-          showError(
-            'OAuth Authorization Failed',
-            'Error: ' + (error && error.message || JSON.stringify(error))
-          );
+
+        //Display 'Failed to call FHIR Service' if extractData failed
+        function() {
+          $('#loading').hide();
+          $('#errors').html('<p> Failed to call FHIR Service </p>');
         }
       );
     </script>
