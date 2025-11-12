@@ -1,51 +1,61 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <title>SMART Launch - Eldrich Example</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-</head>
+  <head>
+    <meta charset="UTF-8" />
+    <title>SMART Launch – Eldrich Example</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <style>
+      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 24px; }
+      .err { color: #b00020; }
+      .muted { color: #666; }
+      code { background: #f6f8fa; padding: 2px 6px; border-radius: 4px; }
+    </style>
 
-<body>
-  <h3>Launching SMART App...</h3>
+    <!-- SMART on FHIR JS Client (v2) -->
+    <script src="https://cdn.jsdelivr.net/npm/fhirclient@2.3.10/build/fhir-client.min.js"></script>
+  </head>
 
-  <!-- Include SMART client libraries FIRST -->
-  <script src="https://cdn.jsdelivr.net/npm/fhirclient@2.3.10/build/fhir-client.min.js"></script>
+  <body>
+    <h3>Launching SMART App…</h3>
+    <p class="muted">This page will redirect through the authorization server.</p>
 
-  <script>
-    (function () {
-      console.log("SMART Launch page loading...");
+    <script>
+      (function () {
+        console.log("[launch] page loaded");
 
-      // --- STEP 1: Safely read query params (iss + launch) ---
-      const qp = new URLSearchParams(window.location.search);
-      const iss = qp.get("iss");
-      const launch = qp.get("launch");
+        // --- Read SMART launch parameters from the query string ---
+        const qp = new URLSearchParams(window.location.search);
+        const iss = qp.get("iss");
+        const launch = qp.get("launch");
 
-      if (!iss || !launch) {
-        console.error("Missing required SMART launch params", { iss, launch });
-        document.body.innerHTML = `
-          <h2 style="color:red;">Launch Error</h2>
-          <p>Missing required parameters: <b>iss</b> or <b>launch</b>.</p>
-          <p>Expected query string like ?iss=https://fhir-ehr.sandboxcerner.com/r4/...&launch=...</p>
-        `;
-        return;
-      }
+        if (!iss || !launch) {
+          console.error("[launch] Missing iss or launch", { iss, launch });
+          document.body.insertAdjacentHTML(
+            "beforeend",
+            `<p class="err"><strong>Launch Error:</strong> Missing required parameters <code>iss</code> or <code>launch</code>.</p>
+             <p class="muted">This page should only be opened by the EHR/Code Console, not directly.</p>`
+          );
+          return;
+        }
 
-      console.log("SMART Launch Params ✅", { iss, launch });
+        console.log("[launch] Found iss & launch", { iss, launch });
 
-      // --- STEP 2: Start SMART-on-FHIR authorization flow ---
-      FHIR.oauth2.authorize({
-        client_id: "d330dbd2-ff52-4e6b-9c50-5cb6c035dfc7",  // your registered client_id
-        redirect_uri: "https://smart-on-fhir-tutorial-tan.vercel.app/", // must match Code Console EXACTLY
-        scope: "launch openid profile fhirUser online_access patient/*.read", // include all scopes you need
-        iss: iss,
-        launch: launch
-        // 'state' will be auto-generated and stored by the SMART client
-      });
+        // --- SMART v2 authorize (PKCE handled automatically) ---
+        FHIR.oauth2.authorize({
+          // Oracle Code Console client for “Eldrich Test 4”
+          clientId: "9bde46d3-bb2f-46bb-b306-78590f2d74bb",
 
-      // --- OPTIONAL DEBUG LOGS ---
-      console.log("FHIR.oauth2.authorize() called — redirecting to Cerner auth...");
-    })();
-  </script>
-</body>
+          // EXACTLY the redirect URI you registered in Oracle (note trailing slash)
+          redirectUri: "https://smart-on-fhir-tutorial-tan.vercel.app/",
+
+          // Scopes: OpenID + user identity + basic patient reads for the tutorial
+          scope: "launch openid profile fhirUser patient/Patient.read patient/Observation.read",
+
+          // EHR-provided launch context
+          iss,
+          launch
+        });
+      })();
+    </script>
+  </body>
 </html>
