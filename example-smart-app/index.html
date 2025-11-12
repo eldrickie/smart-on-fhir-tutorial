@@ -5,31 +5,15 @@
   <title>Eldrich SMART App - Patient Viewer</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <style>
-    body {
-      font-family: Arial, sans-serif;
-      margin: 40px;
-      color: #222;
-    }
+    body { font-family: Arial, sans-serif; margin: 40px; color: #222; }
     .error { color: red; }
-    pre {
-      background: #f4f4f4;
-      padding: 10px;
-      border-radius: 6px;
-      overflow-x: auto;
-    }
-    #sb-slot {
-      margin-top: 30px;
-      height: 720px;
-      border: 1px solid #ccc;
-      border-radius: 10px;
-      overflow: hidden;
-    }
+    pre { background: #f4f4f4; padding: 10px; border-radius: 6px; overflow-x: auto; }
+    #sb-slot { margin-top: 30px; height: 720px; border: 1px solid #ccc; border-radius: 10px; overflow: hidden; }
   </style>
 
-  <!-- Include Superblocks Embed SDK -->
+  <!-- Superblocks Embed SDK -->
   <script src="https://prod-cdn.superblocks.com/packages/@superblocksteam/embed@latest/embed.bundle.js"></script>
 </head>
-
 <body>
   <h2>SMART on FHIR Example App</h2>
   <p id="status">Loading SMART client...</p>
@@ -38,17 +22,14 @@
   <!-- Container for the embedded Superblocks app -->
   <div id="sb-slot"></div>
 
-  <!-- SMART client library -->
+  <!-- SMART client -->
   <script src="https://cdn.jsdelivr.net/npm/fhirclient@2.3.10/build/fhir-client.min.js"></script>
 
   <script>
-    // Utility for pretty-printing JSON
     function showJSON(obj) {
-      const output = document.getElementById("output");
-      output.textContent = JSON.stringify(obj, null, 2);
+      document.getElementById("output").textContent = JSON.stringify(obj, null, 2);
     }
 
-    // --- SMART on FHIR logic ---
     FHIR.oauth2.ready(
       async function (client) {
         console.log("SMART ready ✅");
@@ -56,24 +37,19 @@
 
         const token = client.state?.tokenResponse?.access_token;
         if (!token) {
-          document.getElementById("status").textContent = "No token found ❌";
+          document.getElementById("status").textContent = "No token found ";
           console.error("Missing access token:", client.state);
           return;
         }
 
         try {
-          // Fetch the active patient
           const patient = await client.request(`Patient/${client.patient.id}`);
           console.log("Patient resource:", patient);
           document.getElementById("status").textContent =
             `Loaded patient: ${patient.name?.[0]?.text || "(Unnamed)"}`;
           showJSON(patient);
 
-          // ============================
-          // Superblocks embed integration
-          // ============================
-
-          // Extract fields to send to Superblocks
+          // ---- Extract values for properties ----
           const nameObj = (patient.name && patient.name[0]) || {};
           const name =
             nameObj.text ||
@@ -84,42 +60,37 @@
           function findMRN(p) {
             const ids = p.identifier || [];
             const byCode = ids.find(id =>
-              (id.type?.coding || []).some(
-                c =>
-                  c.system === "http://terminology.hl7.org/CodeSystem/v2-0203" &&
-                  c.code === "MR"
+              (id.type?.coding || []).some(c =>
+                c.system === "http://terminology.hl7.org/CodeSystem/v2-0203" && c.code === "MR"
               )
             );
             if (byCode) return byCode.value || byCode._value?.extension?.[0]?.valueString || "";
             const byText = ids.find(id => (id.type?.text || "").toUpperCase() === "MRN");
-            if (byText)
-              return byText.value || byText._value?.extension?.[0]?.valueString || "";
+            if (byText) return byText.value || byText._value?.extension?.[0]?.valueString || "";
             return ids[0]?.value || ids[0]?._value?.extension?.[0]?.valueString || "";
           }
           const mrn = findMRN(patient);
 
-          // Create Superblocks embed
+          const safe = v => (v ?? "").toString();
+
+          // ---- Create and mount Superblocks embed WITH PROPERTIES ----
           const sbApp = Superblocks.createSuperblocksEmbed({
             id: "sb-slot",
-            src: "https://app.superblocks.com/embed/applications/8b471cc1-c191-4af8-9e6c-dfc867da028d"
+            src: "https://app.superblocks.com/embed/applications/8b471cc1-c191-4af8-9e6c-dfc867da028d",
+            properties: {
+              patientId: safe(client.patient?.id),
+              name: safe(name),
+              dob: safe(dob),
+              gender: safe(gender),
+              mrn: safe(mrn)
+            }
           });
 
-          // Add lightweight query params to map into Properties
-          const safe = v => (v ?? "").toString();
-          const u = new URL(sbApp.src);
-          u.searchParams.set("patientId", safe(client.patient?.id));
-          u.searchParams.set("name", safe(name));
-          u.searchParams.set("dob", safe(dob));
-          u.searchParams.set("gender", safe(gender));
-          u.searchParams.set("mrn", safe(mrn));
-          sbApp.src = u.toString();
-
-          // Mount into container
           const container = document.getElementById("sb-slot");
           container.innerHTML = "";
           container.appendChild(sbApp);
 
-          console.log("Superblocks embed mounted ✅", sbApp.src);
+          console.log("Superblocks embed mounted  (properties sent)", sbApp);
         } catch (err) {
           console.error("Failed to fetch patient data:", err);
           document.getElementById("status").innerHTML =
@@ -128,7 +99,7 @@
         }
       },
       function (error) {
-        console.error("SMART initialization failed ❌", error);
+        console.error("SMART initialization failed ", error);
         document.getElementById("status").innerHTML =
           `<span class='error'>SMART Initialization Error</span>`;
         showJSON(error);
