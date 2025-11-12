@@ -17,7 +17,17 @@
       border-radius: 6px;
       overflow-x: auto;
     }
+    #sb-slot {
+      margin-top: 30px;
+      height: 720px;
+      border: 1px solid #ccc;
+      border-radius: 10px;
+      overflow: hidden;
+    }
   </style>
+
+  <!-- Include Superblocks Embed SDK -->
+  <script src="https://prod-cdn.superblocks.com/packages/@superblocksteam/embed@latest/embed.bundle.js"></script>
 </head>
 
 <body>
@@ -25,24 +35,25 @@
   <p id="status">Loading SMART client...</p>
   <pre id="output"></pre>
 
-  <!-- Include SMART client libraries -->
+  <!-- Container for the embedded Superblocks app -->
+  <div id="sb-slot"></div>
+
+  <!-- SMART client library -->
   <script src="https://cdn.jsdelivr.net/npm/fhirclient@2.3.10/build/fhir-client.min.js"></script>
 
   <script>
-    // --- Utility for displaying JSON nicely ---
+    // Display helper
     function showJSON(obj) {
       const output = document.getElementById("output");
       output.textContent = JSON.stringify(obj, null, 2);
     }
 
-    // --- MAIN LOGIC ---
+    // Main SMART logic
     FHIR.oauth2.ready(
-      // Success callback
       async function (client) {
         console.log("SMART ready ✅");
         document.getElementById("status").textContent = "SMART app connected.";
 
-        // Token check
         const token = client.state?.tokenResponse?.access_token;
         if (!token) {
           document.getElementById("status").textContent = "No token found ❌";
@@ -50,25 +61,68 @@
           return;
         }
 
-        console.log("Access token obtained:", token ? "✅ Present" : "❌ Missing");
-        console.log("Scopes:", client.state.tokenResponse.scope);
-        console.log("FHIR server:", client.state.serverUrl);
-
-        // --- Fetch the patient resource ---
+        // Fetch patient info from FHIR server
         try {
           const patient = await client.request(`Patient/${client.patient.id}`);
           console.log("Patient resource:", patient);
-          document.getElementById("status").textContent = `Loaded patient: ${patient.name?.[0]?.text || "(Unnamed)"}`;
+          document.getElementById("status").textContent =
+            `Loaded patient: ${patient.name?.[0]?.text || "(Unnamed)"}`;
           showJSON(patient);
+
+          // ============================
+          // Superblocks embed integration
+          // ============================
+
+          // Extract small properties to send to Superblocks
+          const nameObj = (patient.name && patient.name[0]) || {};
+          const name =
+            nameObj.text ||
+            [ ...(nameObj.given || []), nameObj.family ].filter(Boolean).join(" ");
+          const dob = patient.birthDate || "";
+          const gender = patient.gender || "";
+
+          function findMRN(p) {
+            const ids = p.identifier || [];
+            const byCode = ids.find(id =>
+              (id.type?.coding || []).some(
+                c =>
+                  c.system === "http://terminology.hl7.org/CodeSystem/v2-0203" &&
+                  c.code === "MR"
+              )
+            );
+            if (byCode) return byCode.value || byCode._value?.extension?.[0]?.valueString || "";
+            const byText = ids.find(id => (id.type?.text || "").toUpperCase() === "MRN");
+            if (byText)
+              return byText.value || byText._value?.extension?.[0]?.valueString || "";
+            return ids[0]?.value || ids[0]?._value?.extension?.[0]?.valueString || "";
+          }
+          const mrn = findMRN(patient);
+
+          // Create and mount the Superblocks embed
+          const sbApp = Superblocks.createSuperblocksEmbed({
+            id: "sb-slot",
+            src: "https://app.superblocks.com/embed/applications/8b471cc1-c191-4af8-9e6c-dfc867da028d"
+          });
+
+          // Add lightweight query params (these map to your Superblocks "Properties")
+          const u = new URL(sbApp.src);
+          u.searchParams.set("patientId", client.patient.id);
+          u.searchParams.set("name", name);
+          u.searchParams.set("dob", dob);
+          u.searchParams.set("gender", gender);
+          u.searchParams.set("mrn", mrn);
+          sbApp.src = u.toString();
+
+          // Append to page
+          document.body.appendChild(sbApp);
+          console.log("Superblocks embed mounted ✅");
         } catch (err) {
           console.error("Failed to fetch patient data:", err);
-          document.getElementById("status").innerHTML = 
+          document.getElementById("status").innerHTML =
             `<span class='error'>Failed to fetch patient data (Status: ${err.status || "unknown"})</span>`;
           showJSON(err);
         }
       },
-
-      // Error callback
       function (error) {
         console.error("SMART initialization failed ❌", error);
         document.getElementById("status").innerHTML =
