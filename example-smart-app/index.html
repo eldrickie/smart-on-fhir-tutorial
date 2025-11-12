@@ -42,13 +42,13 @@
   <script src="https://cdn.jsdelivr.net/npm/fhirclient@2.3.10/build/fhir-client.min.js"></script>
 
   <script>
-    // Display helper
+    // Utility for pretty-printing JSON
     function showJSON(obj) {
       const output = document.getElementById("output");
       output.textContent = JSON.stringify(obj, null, 2);
     }
 
-    // Main SMART logic
+    // --- SMART on FHIR logic ---
     FHIR.oauth2.ready(
       async function (client) {
         console.log("SMART ready ✅");
@@ -61,8 +61,8 @@
           return;
         }
 
-        // Fetch patient info from FHIR server
         try {
+          // Fetch the active patient
           const patient = await client.request(`Patient/${client.patient.id}`);
           console.log("Patient resource:", patient);
           document.getElementById("status").textContent =
@@ -73,7 +73,7 @@
           // Superblocks embed integration
           // ============================
 
-          // Extract small properties to send to Superblocks
+          // Extract fields to send to Superblocks
           const nameObj = (patient.name && patient.name[0]) || {};
           const name =
             nameObj.text ||
@@ -98,24 +98,28 @@
           }
           const mrn = findMRN(patient);
 
-          // Create and mount the Superblocks embed
+          // Create Superblocks embed
           const sbApp = Superblocks.createSuperblocksEmbed({
             id: "sb-slot",
             src: "https://app.superblocks.com/embed/applications/8b471cc1-c191-4af8-9e6c-dfc867da028d"
           });
 
-          // Add lightweight query params (these map to your Superblocks "Properties")
+          // Add lightweight query params to map into Properties
+          const safe = v => (v ?? "").toString();
           const u = new URL(sbApp.src);
-          u.searchParams.set("patientId", client.patient.id);
-          u.searchParams.set("name", name);
-          u.searchParams.set("dob", dob);
-          u.searchParams.set("gender", gender);
-          u.searchParams.set("mrn", mrn);
+          u.searchParams.set("patientId", safe(client.patient?.id));
+          u.searchParams.set("name", safe(name));
+          u.searchParams.set("dob", safe(dob));
+          u.searchParams.set("gender", safe(gender));
+          u.searchParams.set("mrn", safe(mrn));
           sbApp.src = u.toString();
 
-          // Append to page
-          document.body.appendChild(sbApp);
-          console.log("Superblocks embed mounted ✅");
+          // Mount into container
+          const container = document.getElementById("sb-slot");
+          container.innerHTML = "";
+          container.appendChild(sbApp);
+
+          console.log("Superblocks embed mounted ✅", sbApp.src);
         } catch (err) {
           console.error("Failed to fetch patient data:", err);
           document.getElementById("status").innerHTML =
