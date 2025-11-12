@@ -37,7 +37,7 @@
       // --- STEP 2: Start SMART-on-FHIR authorization flow ---
       FHIR.oauth2.authorize({
         client_id: "9bde46d3-bb2f-46bb-b306-78590f2d74bb",  // your registered client_id
-        redirect_uri: "https://smart-on-fhir-tutorial-tan.vercel.app/example-smart-app/", // must match Code Console EXACTLY
+        redirect_uri: "https://smart-on-fhir-tutorial-tan.vercel.app/", // must match Code Console EXACTLY
         scope: "launch openid profile fhirUser online_access patient/*.read", // include all scopes you need
         iss: iss,
         launch: launch
