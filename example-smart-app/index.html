@@ -35,6 +35,18 @@
         console.log("SMART ready ✅");
         document.getElementById("status").textContent = "SMART app connected.";
 
+        // ✅ ADDED: Extract FHIR context values you want to pass into Superblocks
+        // Cerner SMART provides:
+        // - patientId via client.patient.id
+        // - fhirBaseUrl via client.state.serverUrl (aka the 'iss' / FHIR base)
+        const fhirBaseUrl =
+          client?.state?.serverUrl ||
+          client?.state?.iss ||
+          client?.state?.tokenResponse?.iss ||
+          "";
+
+        const patientIdFromContext = client?.patient?.id || "";
+
         const token = client.state?.tokenResponse?.access_token;
         if (!token) {
           document.getElementById("status").textContent = "No token found ";
@@ -73,12 +85,23 @@
 
           const safe = v => (v ?? "").toString();
 
+          // ✅ ADDED: optional debug so you can prove what's being passed to Superblocks
+          console.log("[context] patientIdFromContext:", patientIdFromContext);
+          console.log("[context] fhirBaseUrl:", fhirBaseUrl);
+
           // ---- Create and mount Superblocks embed WITH PROPERTIES ----
+          // ✅ ADDED: include patientId + fhirBaseUrl in properties so Superblocks can read:
+          // - {{props.patientId}}
+          // - {{props.fhirBaseUrl}}
           const sbApp = Superblocks.createSuperblocksEmbed({
             id: "sb-slot",
             src: "https://app.superblocks.com/embed/applications/8b471cc1-c191-4af8-9e6c-dfc867da028d",
             properties: {
-              patientId: safe(client.patient?.id),
+              // ✅ NEW (what your workflow needs)
+              patientId: safe(patientIdFromContext),
+              fhirBaseUrl: safe(fhirBaseUrl),
+
+              // existing fields you already had
               name: safe(name),
               dob: safe(dob),
               gender: safe(gender),
